@@ -1,0 +1,21 @@
+{
+  "name": "leboncoin-discord-bot",
+  "version": "3.0.0",
+  "description": "Bot Discord de veille Leboncoin (usage educatif/personnel) avec dashboard web - filtre geographique, comparaison prix Amazon, recherche immediate au /watch, persistance SQLite.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy": "node src/deploy-commands.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "cheerio": "^1.0.0",
+    "discord.js": "^14.16.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Veille Leboncoin — Dashboard</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>🔎 Veille Leboncoin</h1>
+    <p class="subtitle">Dashboard local — usage personnel</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Nouvelle surveillance</h2>
+      <form id="watch-form">
+        <div class="field">
+          <label>Recherche *</label>
+          <input name="query" placeholder="ex: iphone 12 64go" required />
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Prix max (€)</label>
+            <input name="maxPrice" type="number" min="0" step="0.01" />
+          </div>
+          <div class="field">
+            <label>Prix de référence (€)</label>
+            <input name="refPrice" type="number" min="0" step="0.01" placeholder="auto (Amazon) si vide" />
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Code postal</label>
+            <input name="zipcode" placeholder="ex: 68000" />
+          </div>
+          <div class="field">
+            <label>Rayon (km)</label>
+            <input name="radiusKm" type="number" min="1" placeholder="20" />
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Serveur Discord *</label>
+            <select id="guild-select" required></select>
+          </div>
+          <div class="field">
+            <label>Salon *</label>
+            <select id="channel-select" required></select>
+          </div>
+        </div>
+        <button type="submit">Créer la surveillance</button>
+      </form>
+      <p id="create-status"></p>
+    </section>
+
+    <section class="card">
+      <h2>Surveillances</h2>
+      <div id="watches-table">
+        <p class="empty">Chargement…</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="feed-header">
+        <h2>Annonces récentes</h2>
+        <div class="feed-controls">
+          <label class="checkbox">
+            <input type="checkbox" id="only-deals" />
+            🔥 Bonnes affaires uniquement
+          </label>
+          <select id="sort-order">
+            <option value="recent">Plus récentes</option>
+            <option value="price_asc">Prix croissant</option>
+            <option value="price_desc">Prix décroissant</option>
+          </select>
+        </div>
+      </div>
+      <div id="feed-list">
+        <p class="empty">Chargement…</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
