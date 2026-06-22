@@ -10,6 +10,23 @@ par surveillance.
 en dehors de leurs CGU respectives. Reste raisonnable sur la fréquence de
 polling pour ne pas te faire bloquer ni saturer leurs serveurs.
 
+## Nouveautés v5 — dashboard en temps réel (WebSocket)
+
+Le dashboard ne fait plus de polling toutes les 15s : il utilise Socket.IO
+pour recevoir les mises à jour en direct, dès qu'elles se produisent côté
+bot (création de watch, nouvelle annonce trouvée, pause/reprise,
+suppression) — que l'action vienne de Discord ou du dashboard lui-même.
+
+Architecture : `src/events.js` expose un `EventEmitter` partagé. Le bot
+(`watchService.js`, commandes Discord dans `index.js`) émet des événements
+dessus ; `web.js` les relaie en WebSocket à tous les onglets ouverts sur le
+dashboard. Si tu ouvres le dashboard sur deux appareils en même temps, les
+deux se mettent à jour en même temps.
+
+Un petit indicateur en haut à droite (🟢/🔴) montre l'état de la connexion
+WebSocket — utile pour savoir si le serveur a redémarré ou si ta connexion
+a un problème.
+
 ## Nouveautés v4 — prix de référence avec repli automatique
 
 Amazon bloque très souvent les requêtes directes (`ECONNRESET` = leur

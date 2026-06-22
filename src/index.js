@@ -11,6 +11,7 @@ import {
 import { createWatch, runWatchCheck, fetchReferencePrice } from "./watchService.js";
 import { DEAL_THRESHOLD } from "./embeds.js";
 import { startWebServer } from "./web.js";
+import { botEvents } from "./events.js";
 
 dotenv.config();
 
@@ -81,6 +82,7 @@ client.on("interactionCreate", async (interaction) => {
           break;
         }
         removeWatch(id);
+        botEvents.emit("watch:deleted", { id });
         await interaction.reply({
           content: `Surveillance \`${id}\` (${watch.query}) supprimée.`,
           flags: MessageFlags.Ephemeral,
@@ -101,6 +103,7 @@ client.on("interactionCreate", async (interaction) => {
         }
         const pausing = interaction.commandName === "pause";
         setPaused(id, pausing);
+        botEvents.emit("watch:updated", getWatch(id));
         await interaction.reply({
           content: `Surveillance \`${id}\` (${watch.query}) ${
             pausing ? "mise en pause ⏸️" : "réactivée ▶️"

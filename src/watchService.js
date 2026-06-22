@@ -5,9 +5,29 @@ import { getReferencePrice } from "./amazon.js";
 import { geocodeZipcode } from "./geocode.js";
 import { buildEmbed } from "./embeds.js";
 import { addWatch, filterUnseen, markSeen } from "./db.js";
+import { botEvents } from "./events.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const DEFAULT_RADIUS_KM = Number(process.env.DEFAULT_RADIUS_KM) || 20;
+
+/** Met une annonce + son watch dans le même format que les lignes de la table seen_listings,
+ * pour que le dashboard reçoive exactement la même forme de données en live que via l'API. */
+function toListingPayload(listing, watch) {
+  return {
+    watch_id: watch.id,
+    listing_id: listing.id,
+    title: listing.title,
+    price: listing.price,
+    url: listing.url,
+    image: listing.image,
+    location: listing.location,
+    is_deal: listing.isDeal ? 1 : 0,
+    seen_at: new Date().toISOString(),
+    watch_query: watch.query,
+    guild_id: watch.guild_id,
+    channel_id: watch.channel_id,
+  };
+}
 
 /**
  * Détermine un prix de référence pour la recherche, avec repli automatique :
@@ -109,6 +129,7 @@ export async function createWatch({
   }
 
   const savedWatch = addWatch(watch);
+  botEvents.emit("watch:created", savedWatch);
 
   let results = [];
   let searchError = null;
@@ -154,6 +175,10 @@ export async function createWatch({
     return { ...l, isDeal };
   });
   markSeen(savedWatch.id, allWithFlag);
+
+  for (const listing of allWithFlag) {
+    botEvents.emit("listing:new", toListingPayload(listing, savedWatch));
+  }
 
   return {
     watch: savedWatch,
@@ -204,5 +229,10 @@ export async function runWatchCheck(watchRow, client) {
   }
 
   markSeen(watchRow.id, sentListings);
+
+  for (const listing of sentListings) {
+    botEvents.emit("listing:new", toListingPayload(listing, watchRow));
+  }
+
   return { freshFound: fresh.length };
 }

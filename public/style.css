@@ -23,6 +23,32 @@ header {
   border-bottom: 1px solid var(--border);
 }
 
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.conn-status {
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(139,146,163,0.15);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.conn-status.online {
+  background: rgba(87,242,135,0.15);
+  color: var(--green);
+}
+
+.conn-status.offline {
+  background: rgba(242,63,95,0.15);
+  color: var(--red);
+}
+
 header h1 {
   margin: 0;
   font-size: 1.6rem;

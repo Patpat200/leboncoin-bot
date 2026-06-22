@@ -1,23 +1,24 @@
 // src/web.js
-// Petit dashboard web pour gérer les surveillances sans passer par Discord,
-// et visualiser le flux des annonces trouvées.
+// Dashboard web avec mises à jour en temps réel via WebSocket (Socket.IO).
 //
-// ⚠️ SÉCURITÉ : ce serveur n'a AUCUNE authentification. Il est prévu pour
-// un usage local (localhost) uniquement. Ne l'expose pas directement sur
-// internet (port forwarding, reverse proxy public, etc.) sans ajouter au
-// moins un mot de passe devant — n'importe qui qui y accède peut créer/
-// supprimer des surveillances et faire poster le bot dans tes salons.
+// ⚠️ SÉCURITÉ : ce serveur n'a AUCUNE authentification. Prévu pour un usage
+// local uniquement. Ne l'expose pas sur internet sans ajouter au moins un
+// mot de passe devant.
 
 import express from "express";
+import { createServer } from "http";
+import { Server as SocketIOServer } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
 import {
   listWatches,
+  getWatch,
   removeWatch,
   setPaused,
   getRecentListings,
 } from "./db.js";
 import { createWatch } from "./watchService.js";
+import { botEvents } from "./events.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -26,8 +27,9 @@ export function startWebServer(client) {
   app.use(express.json());
   app.use(express.static(path.join(__dirname, "..", "public")));
 
-  // Liste des serveurs/salons où le bot est présent, pour le formulaire
-  // de création de watch côté web.
+  // ---------------------------------------------------------------------
+  // Routes REST (état initial au chargement de la page + actions)
+  // ---------------------------------------------------------------------
   app.get("/api/guilds", (req, res) => {
     const guilds = client.guilds.cache.map((g) => ({
       id: g.id,
@@ -54,6 +56,8 @@ export function startWebServer(client) {
     }
 
     try {
+      // createWatch émet déjà watch:created et listing:new (voir watchService.js)
+      // -> les clients connectés sont mis à jour automatiquement.
       const result = await createWatch({
         query,
         maxPrice: maxPrice || null,
@@ -72,15 +76,21 @@ export function startWebServer(client) {
   });
 
   app.post("/api/watches/:id/pause", (req, res) => {
-    res.json({ ok: setPaused(req.params.id, true) });
+    const ok = setPaused(req.params.id, true);
+    if (ok) botEvents.emit("watch:updated", getWatch(req.params.id));
+    res.json({ ok });
   });
 
   app.post("/api/watches/:id/resume", (req, res) => {
-    res.json({ ok: setPaused(req.params.id, false) });
+    const ok = setPaused(req.params.id, false);
+    if (ok) botEvents.emit("watch:updated", getWatch(req.params.id));
+    res.json({ ok });
   });
 
   app.delete("/api/watches/:id", (req, res) => {
-    res.json({ ok: removeWatch(req.params.id) });
+    const ok = removeWatch(req.params.id);
+    if (ok) botEvents.emit("watch:deleted", { id: req.params.id });
+    res.json({ ok });
   });
 
   app.get("/api/listings", (req, res) => {
@@ -92,8 +102,31 @@ export function startWebServer(client) {
     res.json(listings);
   });
 
-  const port = Number(process.env.WEB_PORT) || 3000;
-  app.listen(port, () => {
-    console.log(`Interface web disponible sur http://localhost:${port}`);
+  // ---------------------------------------------------------------------
+  // Socket.IO : relaie les événements du bot vers tous les navigateurs
+  // connectés. Le client Socket.IO est servi automatiquement par le
+  // package sur /socket.io/socket.io.js, pas besoin de CDN.
+  // ---------------------------------------------------------------------
+  const httpServer = createServer(app);
+  const io = new SocketIOServer(httpServer);
+
+  const forward = (event) => (payload) => io.emit(event, payload);
+  botEvents.on("watch:created", forward("watch:created"));
+  botEvents.on("watch:updated", forward("watch:updated"));
+  botEvents.on("watch:deleted", forward("watch:deleted"));
+  botEvents.on("listing:new", forward("listing:new"));
+
+  io.on("connection", (socket) => {
+    console.log(`[web] client connecté (${socket.id})`);
+    socket.on("disconnect", () => {
+      console.log(`[web] client déconnecté (${socket.id})`);
+    });
   });
+
+  const port = Number(process.env.WEB_PORT) || 3000;
+  httpServer.listen(port, () => {
+    console.log(`Interface web (temps réel) disponible sur http://localhost:${port}`);
+  });
+
+  return io;
 }

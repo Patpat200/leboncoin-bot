@@ -8,9 +8,62 @@ const watchesTableEl = document.getElementById("watches-table");
 const feedListEl = document.getElementById("feed-list");
 const onlyDealsCheckbox = document.getElementById("only-deals");
 const sortOrderSelect = document.getElementById("sort-order");
+const connectionStatusEl = document.getElementById("connection-status");
 
 let guildsCache = [];
+let watchesCache = [];
+let listingsCache = [];
+const MAX_LISTINGS_CACHE = 300;
 
+function escapeHtml(str) {
+  return String(str ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+// ---------------------------------------------------------------------------
+// Socket.IO — toutes les mises à jour arrivent en direct, pas de polling.
+// ---------------------------------------------------------------------------
+const socket = io();
+
+socket.on("connect", () => {
+  connectionStatusEl.textContent = "🟢 Connecté";
+  connectionStatusEl.className = "conn-status online";
+});
+
+socket.on("disconnect", () => {
+  connectionStatusEl.textContent = "🔴 Déconnecté — tentative de reconnexion…";
+  connectionStatusEl.className = "conn-status offline";
+});
+
+socket.on("watch:created", (watch) => {
+  watchesCache.push(watch);
+  renderWatchesTable();
+});
+
+socket.on("watch:updated", (watch) => {
+  const idx = watchesCache.findIndex((w) => w.id === watch.id);
+  if (idx !== -1) watchesCache[idx] = watch;
+  else watchesCache.push(watch);
+  renderWatchesTable();
+});
+
+socket.on("watch:deleted", ({ id }) => {
+  watchesCache = watchesCache.filter((w) => w.id !== id);
+  renderWatchesTable();
+});
+
+socket.on("listing:new", (listing) => {
+  listingsCache.unshift(listing);
+  if (listingsCache.length > MAX_LISTINGS_CACHE) {
+    listingsCache.length = MAX_LISTINGS_CACHE;
+  }
+  renderFeed();
+});
+
+// ---------------------------------------------------------------------------
+// Formulaire : serveurs / salons Discord
+// ---------------------------------------------------------------------------
 async function loadGuilds() {
   const res = await fetch("/api/guilds");
   guildsCache = await res.json();
@@ -31,12 +84,6 @@ function updateChannelOptions() {
 }
 
 guildSelect?.addEventListener("change", updateChannelOptions);
-
-function escapeHtml(str) {
-  return String(str ?? "").replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[c]));
-}
 
 // ---------------------------------------------------------------------------
 // Création d'une surveillance
@@ -69,16 +116,19 @@ watchForm?.addEventListener("submit", async (e) => {
     if (!res.ok) {
       createStatus.textContent = `Erreur : ${data.error || "inconnue"}`;
     } else {
+      // Le watch + les annonces arrivent normalement déjà via Socket.IO,
+      // ceci est juste un résumé immédiat dans le formulaire.
       const lines = [
         `Surveillance "${data.watch.query}" créée (id ${data.watch.id}).`,
         `${data.totalFound} annonce(s) trouvée(s), ${data.alertedCount} postée(s) sur Discord` +
           (data.dealsFound ? ` (${data.dealsFound} 🔥)` : "") + ".",
       ];
-      if (data.refPriceError) lines.push(`⚠️ Prix Amazon non récupéré : ${data.refPriceError}`);
+      if (data.refPriceErrors?.amazonError && !data.refPriceInfo) {
+        lines.push(`⚠️ Référence non trouvée : ${data.refPriceErrors.amazonError}`);
+      }
       if (data.geoWarning) lines.push(`⚠️ ${data.geoWarning}`);
       createStatus.textContent = lines.join("\n");
       watchForm.reset();
-      refreshAll();
     }
   } catch (err) {
     createStatus.textContent = `Erreur réseau : ${err.message}`;
@@ -88,39 +138,49 @@ watchForm?.addEventListener("submit", async (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// Liste des surveillances
+// Surveillances (chargement initial + rendu, mises à jour via socket ensuite)
 // ---------------------------------------------------------------------------
 async function loadWatches() {
   const res = await fetch("/api/watches");
-  const watches = await res.json();
+  watchesCache = await res.json();
+  renderWatchesTable();
+}
 
-  if (watches.length === 0) {
+function renderWatchesTable() {
+  if (watchesCache.length === 0) {
     watchesTableEl.innerHTML = `<p class="empty">Aucune surveillance pour l'instant.</p>`;
     return;
   }
 
-  const rows = watches.map((w) => `
-    <tr>
-      <td>
-        <strong>${escapeHtml(w.query)}</strong><br/>
-        <span style="color:var(--muted);font-size:0.78rem">${w.id}</span>
-      </td>
-      <td>
-        ${w.max_price ? `max ${w.max_price}€<br/>` : ""}
-        ${w.zipcode ? `📍 ${escapeHtml(w.zipcode)} (${w.radius_km}km)` : ""}
-      </td>
-      <td>${w.ref_price ? `~${Math.round(w.ref_price)}€<br/><span style="color:var(--muted);font-size:0.72rem">${
-        w.ref_price_source === "amazon" ? "Amazon" : w.ref_price_source === "leboncoin_median" ? "médiane LBC" : "manuel"
-      }</span>` : "—"}</td>
-      <td><span class="badge ${w.paused ? "paused" : "active"}">${w.paused ? "En pause" : "Actif"}</span></td>
-      <td class="row-actions">
-        ${w.paused
-          ? `<button data-action="resume" data-id="${w.id}">▶️ Reprendre</button>`
-          : `<button data-action="pause" data-id="${w.id}">⏸️ Pause</button>`}
-        <button data-action="delete" data-id="${w.id}" class="danger">🗑️</button>
-      </td>
-    </tr>
-  `).join("");
+  const sourceLabel = (w) =>
+    w.ref_price_source === "amazon" ? "Amazon"
+    : w.ref_price_source === "leboncoin_median" ? "médiane LBC"
+    : "manuel";
+
+  const rows = [...watchesCache]
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .map((w) => `
+      <tr>
+        <td>
+          <strong>${escapeHtml(w.query)}</strong><br/>
+          <span style="color:var(--muted);font-size:0.78rem">${w.id}</span>
+        </td>
+        <td>
+          ${w.max_price ? `max ${w.max_price}€<br/>` : ""}
+          ${w.zipcode ? `📍 ${escapeHtml(w.zipcode)} (${w.radius_km}km)` : ""}
+        </td>
+        <td>${w.ref_price
+          ? `~${Math.round(w.ref_price)}€<br/><span style="color:var(--muted);font-size:0.72rem">${sourceLabel(w)}</span>`
+          : "—"}</td>
+        <td><span class="badge ${w.paused ? "paused" : "active"}">${w.paused ? "En pause" : "Actif"}</span></td>
+        <td class="row-actions">
+          ${w.paused
+            ? `<button data-action="resume" data-id="${w.id}">▶️ Reprendre</button>`
+            : `<button data-action="pause" data-id="${w.id}">⏸️ Pause</button>`}
+          <button data-action="delete" data-id="${w.id}" class="danger">🗑️</button>
+        </td>
+      </tr>
+    `).join("");
 
   watchesTableEl.innerHTML = `
     <table>
@@ -142,16 +202,25 @@ watchesTableEl?.addEventListener("click", async (e) => {
   const url = action === "delete" ? `/api/watches/${id}` : `/api/watches/${id}/${action}`;
   const method = action === "delete" ? "DELETE" : "POST";
   await fetch(url, { method });
-  loadWatches();
+  // Pas besoin de recharger : le serveur émet watch:updated / watch:deleted,
+  // qui mettent déjà à jour watchesCache via le socket.
 });
 
 // ---------------------------------------------------------------------------
-// Flux des annonces
+// Flux des annonces (chargement initial + rendu, mises à jour via socket)
 // ---------------------------------------------------------------------------
 async function loadFeed() {
-  const onlyDeals = onlyDealsCheckbox?.checked ? "true" : "false";
-  const res = await fetch(`/api/listings?onlyDeals=${onlyDeals}`);
-  let listings = await res.json();
+  const res = await fetch("/api/listings");
+  listingsCache = await res.json();
+  renderFeed();
+}
+
+function renderFeed() {
+  let listings = listingsCache;
+
+  if (onlyDealsCheckbox?.checked) {
+    listings = listings.filter((l) => l.is_deal);
+  }
 
   const sortOrder = sortOrderSelect?.value || "recent";
   if (sortOrder === "price_asc") {
@@ -159,7 +228,7 @@ async function loadFeed() {
   } else if (sortOrder === "price_desc") {
     listings = [...listings].sort((a, b) => (b.price ?? -Infinity) - (a.price ?? -Infinity));
   }
-  // "recent" : on garde l'ordre renvoyé par l'API (déjà trié par date desc)
+  // "recent" : ordre d'arrivée déjà décroissant par date (cache + flux live)
 
   if (listings.length === 0) {
     feedListEl.innerHTML = `<p class="empty">Aucune annonce pour l'instant.</p>`;
@@ -184,17 +253,12 @@ async function loadFeed() {
   `).join("");
 }
 
-onlyDealsCheckbox?.addEventListener("change", loadFeed);
-sortOrderSelect?.addEventListener("change", loadFeed);
+onlyDealsCheckbox?.addEventListener("change", renderFeed);
+sortOrderSelect?.addEventListener("change", renderFeed);
 
 // ---------------------------------------------------------------------------
-// Rafraîchissement périodique
+// Chargement initial (les mises à jour suivantes arrivent via Socket.IO)
 // ---------------------------------------------------------------------------
-function refreshAll() {
-  loadWatches();
-  loadFeed();
-}
-
 loadGuilds();
-refreshAll();
-setInterval(refreshAll, 15000);
+loadWatches();
+loadFeed();

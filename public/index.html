@@ -8,8 +8,13 @@
 </head>
 <body>
   <header>
-    <h1>🔎 Veille Leboncoin</h1>
-    <p class="subtitle">Dashboard local — usage personnel</p>
+    <div class="header-row">
+      <div>
+        <h1>🔎 Veille Leboncoin</h1>
+        <p class="subtitle">Dashboard local — usage personnel</p>
+      </div>
+      <span id="connection-status" class="conn-status">🔌 Connexion…</span>
+    </div>
   </header>
 
   <main>
@@ -83,6 +88,7 @@
     </section>
   </main>
 
+  <script src="/socket.io/socket.io.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
